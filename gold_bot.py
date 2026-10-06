@@ -4,13 +4,11 @@ import re
 from datetime import datetime, timezone
 
 import feedparser
-import google.generativeai as genai
 import requests
-from google.api_core.exceptions import NotFound
 
 NEWS_RSS_URL = "https://news.google.com/rss/search?q=gold+price+news&hl=en-US&gl=US&ceid=US:en"
 GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_FALLBACK_MODEL = "gemini-3.8-flash"
+GEMINI_FALLBACK_MODELS = ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash")
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 
@@ -52,7 +50,6 @@ def fetch_top_news(limit: int = 3) -> list[dict[str, str]]:
 def summarize_in_burmese(articles: list[dict[str, str]]) -> str:
     """Use Gemini to produce a concise, professional Burmese market summary."""
     api_key = os.environ["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key)
     article_text = "\n\n".join(
         f"[{index}] {item['title']}\nSource: {item['source']}\n"
         f"Published: {item['published']}\nSummary: {item['summary']}"
@@ -71,17 +68,31 @@ Requirements:
 News items:
 {article_text}
 """
-    response = None
+    response_text = None
     last_error = None
-    for model_name in (GEMINI_MODEL, GEMINI_FALLBACK_MODEL):
+    for model_name in (GEMINI_MODEL, *GEMINI_FALLBACK_MODELS):
         try:
-            response = genai.GenerativeModel(model_name).generate_content(prompt)
-            break
-        except NotFound as error:
+            response = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent",
+                params={"key": api_key},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=60,
+            )
+            if response.status_code == 404:
+                last_error = RuntimeError(f"Gemini model unavailable: {model_name}")
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            response_text = "".join(part.get("text", "") for part in parts).strip()
+            if response_text:
+                break
+            last_error = RuntimeError(f"Gemini returned no text for model: {model_name}")
+        except requests.RequestException as error:
             last_error = error
-    if response is None:
+    if not response_text:
         raise RuntimeError("No configured Gemini model is available") from last_error
-    text = (getattr(response, "text", "") or "").strip()
+    text = response_text
     if not text:
         raise RuntimeError("Gemini returned an empty Burmese summary")
 
