@@ -34,29 +34,37 @@ def generate_report(raw_news, patong_time_str):
     client = genai.Client(api_key=GEMINI_API_KEY)
     
     prompt = f"""
-    You are a senior global commodities analyst. Generate an in-depth daily gold market report in Burmese for a user based in Patong, Phuket, Thailand.
+    You are an elite global macro hedge fund strategist and economic historian in the style of Ray Dalio. 
+    Analyze the provided daily gold market data and news to generate an institutional-grade, deep Macroeconomic Strategy Report in Burmese for a high-net-worth gold investor based in Patong, Phuket, Thailand.
     
     Current Patong Time: {patong_time_str}
 
+    CRITICAL INSTRUCTION:
+    Do NOT just provide simple news summaries. Analyze the underlying economic mechanics through Ray Dalio's macro principles:
+    - Monetary policy & Debt cycles (Long-term debt cycle, central bank printing)
+    - Currency Debasement & Real Yields (Nominal interest rates minus inflation)
+    - Central Bank Reserve Allocation (Geopolitical diversification out of fiat into hard assets)
+    - Portfolio Risk Management & Capital Preservation
+
     Structure the report strictly with clean HTML formatting for Telegram:
 
-    <b>🪙 နေ့စဉ် ကမ္ဘာ့နှင့် ဒေသတွင်း ရွှေဈေးကွက် အသေးစိတ် အစီရင်ခံစာ</b>
+    <b>🏛️ Ray Dalio Style Global Macro & Gold Strategy Report</b>
     <b>🕒 ထုတ်ပြန်ချိန် - {patong_time_str}</b>
 
-    <b>🌐 ၁။ ကမ္ဘာ့ Macro ဈေးကွက် သုံးသပ်ချက် (WGC, LBMA, CME/COMEX, Reuters, Bloomberg)</b>
-    - (Analyze global interest rates, US Dollar Index, Central Bank Reserves, Inflation, and Spot Gold trends).
+    <b>🌐 ၁။ ကမ္ဘာ့ မက်ခရို စီးပွားရေးနှင့် ငွေကြေးစနစ် သုံးသပ်ချက် (Macro & Monetary Framework)</b>
+    - (Deeply analyze US Fed Policy, Debt Cycles, Currency Debasement, Real Yields vs Inflation, and Sovereign Reserve Diversification using WGC, LBMA, COMEX, Reuters, Bloomberg data).
 
-    <b>📊 ၂။ Technical & Chart Analysis (Kitco, TradingView, Investing.com)</b>
-    - (Detail support & resistance levels, bullish/bearish price targets, and market sentiment).
+    <b>📈 ၂။ ဈေးကွက် လျှောက်လှမ်းမှုနှင့် နည်းပညာပိုင်းဆိုင်ရာ သမိုင်းဝင် သဘောသဘာဝ (Market Dynamics & Technical Positioning)</b>
+    - (Analyze institutional order flow, key structural support/resistance zones, RSI/MACD indicators, and systemic risk premiums via Kitco, TradingView, Investing.com).
 
-    <b>🇹🇭 ၃။ ထိုင်းနိုင်ငံ ရွှေဈေးကွက် အခြေအနေ (Gold Traders Association Thailand - GTA)</b>
-    - (Analyze Thai Baht gold benchmark trends and Thailand local market demand/price impact).
+    <b>🇹🇭 ၃။ ဒေသတွင်း ဂေဟစနစ်နှင့် ထိုင်းဘတ်ငွေ သက်ရောက်မှု (Thailand Regional Dynamics & Baht Hedging)</b>
+    - (Detail local liquidity in Phuket/Patong, Thai Baht currency movement relative to USD, and GTA benchmark impact on real purchasing power).
 
-    <b>🇲🇲 ၄။ မြန်မာ့ရွှေဈေးကွက် အခြေအနေ (YGEA Context)</b>
-    - (Brief overview of Myanmar local gold market context and foreign exchange spillover effects).
+    <b>🇲🇲 ၄။ မြန်မာ့ရွှေနှင့် ပြည်တွင်း ငွေကြေးဆိုင်ရာ အန္တရာယ် ကာကွယ်မှု (Myanmar Context & Asset Protection)</b>
+    - (Analyze FX volatility, physical gold as a wealth preservation tool against local currency debasement, and YGEA market mechanics).
 
-    <b>💡 ၅။ ရင်းနှီးမြှုပ်နှံသူများအတွက် အနှစ်ချုပ် သတိပြုရန် (Key Takeaways)</b>
-    - (Provide 2 critical takeaways for investors).
+    <b>💡 ၅။ Ray Dalio မူဘောင်အပေါ် အခြေခံသော ရင်းနှီးမြှုပ်နှံမှု မဟာဗျူဟာ (Strategic Takeaways & Portfolio Allocation)</b>
+    - (Provide 2-3 high-level, actionable macroeconomic strategies focusing on capital preservation, downside risk management, and long-term positioning).
 
     <b>🔗 တရားဝင် သတင်းရင်းမြစ်များနှင့် မူရင်း Link များ:</b>
     • <a href="https://www.gold.org">1. World Gold Council (WGC)</a>
@@ -70,14 +78,13 @@ def generate_report(raw_news, patong_time_str):
     • <a href="https://www.goldtraders.or.th">9. GTA Thailand (Thai Baht Benchmark)</a>
     • <a href="https://www.ygea.org.mm">10. YGEA (Myanmar Gold)</a>
 
-    Translate and structure into natural, professional, analytical Burmese. Avoid overly basic summaries.
-    Max length: 3500 characters.
+    Tone: Sophisticated, institutional, authoritative, deep, and strategic Burmese. Avoid basic headline reporting. Focus on structural macro economics and risk management.
+    Max length: 3800 characters.
 
     News Data:
     {raw_news}
     """
     
-    # ရရှိနိုင်သော မော်ဒယ်များကို အလိုအလျောက် ရှာဖွေသည့် စနစ်
     candidate_models = []
     try:
         for m in client.models.list():
@@ -91,9 +98,7 @@ def generate_report(raw_news, patong_time_str):
         candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
 
     candidate_models = list(dict.fromkeys(candidate_models))
-    print(f"Available models found: {candidate_models}")
 
-    # မော်ဒယ်တစ်ခုစီအတွက် ၅ စက္ကန့်/၁၀ စက္ကန့် စောင့်၍ ထပ်မံကြိုးစားမည့် Retry စနစ်
     for model_name in candidate_models:
         for attempt in range(1, 4):
             try:
@@ -125,7 +130,6 @@ def send_telegram(message_text):
     res = requests.post(url, json=payload)
     res_json = res.json()
     
-    # HTML Parsing Error ဖြစ်ပါက Plain Text ဖြင့် ပြန်လည် ပို့ပေးမည့် စနစ်
     if not res_json.get("ok") and "parse" in res_json.get("description", "").lower():
         print("HTML format issue detected. Retrying without HTML mode...")
         payload.pop("parse_mode", None)
