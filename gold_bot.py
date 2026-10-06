@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import feedparser
 from datetime import datetime
@@ -76,12 +77,42 @@ def generate_report(raw_news, patong_time_str):
     {raw_news}
     """
     
-    # Model အသစ် gemini-3.8-flash သို့ ပြောင်းလဲထားပါသည်
-    response = client.models.generate_content(
-        model='gemini-3.8-flash',
-        contents=prompt
-    )
-    return response.text
+    # ရရှိနိုင်သော မော်ဒယ်များကို အလိုအလျောက် ရှာဖွေသည့် စနစ်
+    candidate_models = []
+    try:
+        for m in client.models.list():
+            name = m.name.replace("models/", "") if hasattr(m, 'name') else str(m)
+            if "flash" in name and "gemini" in name:
+                candidate_models.append(name)
+    except Exception as e:
+        print(f"Could not list models dynamically: {e}")
+        
+    if not candidate_models:
+        candidate_models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+
+    candidate_models = list(dict.fromkeys(candidate_models))
+    print(f"Available models found: {candidate_models}")
+
+    # မော်ဒယ်တစ်ခုစီအတွက် ၅ စက္ကန့်/၁၀ စက္ကန့် စောင့်၍ ထပ်မံကြိုးစားမည့် Retry စနစ်
+    for model_name in candidate_models:
+        for attempt in range(1, 4):
+            try:
+                print(f"Attempting model '{model_name}' (Try {attempt})...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                err_str = str(e)
+                print(f"Failed '{model_name}' (Try {attempt}): {err_str}")
+                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                    time.sleep(5 * attempt)
+                else:
+                    break
+
+    raise Exception("All Gemini model attempts failed. Please try again later.")
 
 def send_telegram(message_text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -92,7 +123,16 @@ def send_telegram(message_text):
         "disable_web_page_preview": True
     }
     res = requests.post(url, json=payload)
-    return res.json()
+    res_json = res.json()
+    
+    # HTML Parsing Error ဖြစ်ပါက Plain Text ဖြင့် ပြန်လည် ပို့ပေးမည့် စနစ်
+    if not res_json.get("ok") and "parse" in res_json.get("description", "").lower():
+        print("HTML format issue detected. Retrying without HTML mode...")
+        payload.pop("parse_mode", None)
+        res = requests.post(url, json=payload)
+        res_json = res.json()
+        
+    return res_json
 
 if __name__ == "__main__":
     patong_tz = ZoneInfo("Asia/Bangkok")
