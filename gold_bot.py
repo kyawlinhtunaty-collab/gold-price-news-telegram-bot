@@ -1,157 +1,106 @@
-import html
 import os
-import re
-from datetime import datetime, timezone
-
-import feedparser
 import requests
+import feedparser
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import google.generativeai as genai
 
-NEWS_RSS_URL = "https://news.google.com/rss/search?q=gold+price+news&hl=en-US&gl=US&ceid=US:en"
-GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_FALLBACK_MODELS = ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash")
-TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
+# Environment Variables
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-
-def _clean_text(value: str) -> str:
-    """Remove markup and normalize whitespace from RSS text."""
-    value = html.unescape(value or "")
-    value = re.sub(r"<[^>]+>", " ", value)
-    return re.sub(r"\s+", " ", value).strip()
-
-
-def fetch_top_news(limit: int = 3) -> list[dict[str, str]]:
-    """Fetch the top gold-price news items from Google News RSS."""
-    response = requests.get(NEWS_RSS_URL, timeout=30)
-    response.raise_for_status()
-    feed = feedparser.parse(response.content)
-
-    if getattr(feed, "bozo", False) and not feed.entries:
-        raise RuntimeError("Google News RSS could not be parsed")
-
-    articles = []
-    for entry in feed.entries[:limit]:
-        source = entry.get("source", {})
-        source_name = source.get("title", "Google News") if hasattr(source, "get") else "Google News"
-        articles.append(
-            {
-                "title": _clean_text(entry.get("title", "Untitled")),
-                "summary": _clean_text(entry.get("summary", "")),
-                "source": _clean_text(source_name),
-                "published": _clean_text(entry.get("published", "")),
-                "link": entry.get("link", ""),
-            }
-        )
-
-    if not articles:
-        raise RuntimeError("No gold-price news items were returned by Google News RSS")
-    return articles
-
-
-def summarize_in_burmese(articles: list[dict[str, str]]) -> str:
-    """Use Gemini to produce a concise, professional Burmese market summary."""
-    api_key = os.environ["GEMINI_API_KEY"]
-    article_text = "\n\n".join(
-        f"[{index}] {item['title']}\nSource: {item['source']}\n"
-        f"Published: {item['published']}\nSummary: {item['summary']}"
-        for index, item in enumerate(articles, start=1)
+def fetch_gold_news():
+    # WGC, LBMA, CME, Kitco, TradingView, GTA Thailand, YGEA စသည့် သတင်းရင်းမြစ်များ ပါဝင်သော RSS Search Query
+    query = (
+        "gold price OR XAUUSD OR World Gold Council OR LBMA OR COMEX gold "
+        "OR Kitco gold OR Gold Traders Association Thailand OR YGEA"
     )
-    prompt = f"""You are a professional commodities-market editor.
-Analyze the three latest global gold-price news items below and write a clean Burmese-language update.
+    rss_url = f"https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl=en-US&gl=US&ceid=US:en"
+    feed = feedparser.parse(rss_url)
+    
+    # နောက်ဆုံးထွက် သတင်း ၁၀ ပုဒ်အထိ ဆွဲယူမည်
+    articles = feed.entries[:10]
+    news_text = ""
+    
+    for idx, entry in enumerate(articles, 1):
+        title = entry.get('title', '')
+        link = entry.get('link', '')
+        source = entry.get('source', {}).get('title', 'Financial Source')
+        published = entry.get('published', '')
+        news_text += f"{idx}. [{source}] {title}\nPublished: {published}\n\n"
+        
+    return news_text
 
-Requirements:
-- Write exactly 3 concise bullet points, one for each article.
-- Each bullet must explain the main development, its likely effect on gold prices, and the key market factor (such as US dollar, interest rates, inflation, central-bank buying, geopolitics, or safe-haven demand) when supported by the source.
-- Use natural, professional Myanmar Burmese. Keep commonly understood financial terms such as Gold, USD, Fed, and Treasury yields in English when clearer.
-- Do not invent prices, causes, forecasts, or facts not present in the supplied items.
-- Do not include Markdown headings, URLs, citations, or HTML tags. Start every line with a simple dash.
+def generate_report(raw_news, patong_time_str):
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    prompt = f"""
+    You are a senior global commodities analyst. Generate an in-depth daily gold market report in Burmese for a user based in Patong, Phuket, Thailand.
+    
+    Current Patong Time: {patong_time_str}
 
-News items:
-{article_text}
-"""
-    response_text = None
-    last_error = None
-    for model_name in (GEMINI_MODEL, *GEMINI_FALLBACK_MODELS):
-        try:
-            response = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent",
-                params={"key": api_key},
-                json={"contents": [{"parts": [{"text": prompt}]}]},
-                timeout=60,
-            )
-            if response.status_code == 404:
-                last_error = RuntimeError(f"Gemini model unavailable: {model_name}")
-                continue
-            response.raise_for_status()
-            payload = response.json()
-            parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-            response_text = "".join(part.get("text", "") for part in parts).strip()
-            if response_text:
-                break
-            last_error = RuntimeError(f"Gemini returned no text for model: {model_name}")
-        except requests.RequestException as error:
-            last_error = error
-    if not response_text:
-        raise RuntimeError("No configured Gemini model is available") from last_error
-    text = response_text
-    if not text:
-        raise RuntimeError("Gemini returned an empty Burmese summary")
+    Structure the report strictly with clean HTML formatting for Telegram:
 
-    # Normalize the model's bullets before embedding the content in Telegram HTML.
-    lines = []
-    for line in text.splitlines():
-        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
-        if line:
-            lines.append(f"• {html.escape(line)}")
-    if not lines:
-        raise RuntimeError("Gemini returned no usable summary lines")
-    return "\n".join(lines[:3])
+    <b>🪙 နေ့စဉ် ကမ္ဘာ့နှင့် ဒေသတွင်း ရွှေဈေးကွက် အသေးစိတ် အစီရင်ခံစာ</b>
+    <b>🕒 ထုတ်ပြန်ချိန် - {patong_time_str}</b>
 
+    <b>🌐 ၁။ ကမ္ဘာ့ Macro ဈေးကွက် သုံးသပ်ချက် (WGC, LBMA, CME/COMEX, Reuters, Bloomberg)</b>
+    - (Analyze global interest rates, US Dollar Index, Central Bank Reserves, Inflation, and Spot Gold trends).
 
-def build_message(articles: list[dict[str, str]], summary: str) -> str:
-    """Build a Telegram-safe HTML message with the summary and source links."""
-    date_text = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    sources = "\n".join(
-        f"• <a href=\"{html.escape(item['link'], quote=True)}\">"
-        f"{html.escape(item['source'] or item['title'])}</a>"
-        for item in articles
-        if item.get("link")
-    )
-    return (
-        "<b>🪙 နေ့စဉ် ရွှေဈေးကွက်သတင်း</b>\n"
-        f"<i>{date_text}</i>\n\n"
-        f"{summary}\n\n"
-        "<b>သတင်းရင်းမြစ်များ</b>\n"
-        f"{sources}"
-    )
+    <b>📊 ၂။ Technical & Chart Analysis (Kitco, TradingView, Investing.com)</b>
+    - (Detail support & resistance levels, bullish/bearish price targets, and market sentiment).
 
+    <b>🇹🇭 ၃။ ထိုင်းနိုင်ငံ ရွှေဈေးကွက် အခြေအနေ (Gold Traders Association Thailand - GTA)</b>
+    - (Analyze Thai Baht gold benchmark trends and Thailand local market demand/price impact).
 
-def send_to_telegram(message: str) -> None:
-    """Send the formatted update to the configured Telegram chat."""
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    chat_id = os.environ["TELEGRAM_CHAT_ID"]
-    response = requests.post(
-        TELEGRAM_API_URL.format(token=token),
-        json={
-            "chat_id": chat_id,
-            "text": message,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    result = response.json()
-    if not result.get("ok"):
-        raise RuntimeError(f"Telegram API error: {result}")
+    <b>🇲🇲 ၄။ မြန်မာ့ရွှေဈေးကွက် အခြေအနေ (YGEA Context)</b>
+    - (Brief overview of Myanmar local gold market context and foreign exchange spillover effects).
 
+    <b>💡 ၅။ ရင်းနှီးမြှုပ်နှံသူများအတွက် အနှစ်ချုပ် သတိပြုရန် (Key Takeaways)</b>
+    - (Provide 2 critical takeaways for investors).
 
-def main() -> None:
-    articles = fetch_top_news(limit=3)
-    summary = summarize_in_burmese(articles)
-    message = build_message(articles, summary)
-    send_to_telegram(message)
-    print(f"Delivered a Burmese gold-price update based on {len(articles)} articles.")
+    <b>🔗 တရားဝင် သတင်းရင်းမြစ်များနှင့် မူရင်း Link များ:</b>
+    • <a href="https://www.gold.org">1. World Gold Council (WGC)</a>
+    • <a href="https://www.lbma.org.uk">2. LBMA (London Spot)</a>
+    • <a href="https://www.cmegroup.com">3. CME / COMEX Futures</a>
+    • <a href="https://www.kitco.com">4. Kitco News</a>
+    • <a href="https://www.tradingview.com">5. TradingView Charts</a>
+    • <a href="https://www.investing.com/commodities/gold">6. Investing.com Gold</a>
+    • <a href="https://www.reuters.com/markets/commodities/">7. Reuters Commodities</a>
+    • <a href="https://www.bloomberg.com/markets">8. Bloomberg Markets</a>
+    • <a href="https://www.goldtraders.or.th">9. GTA Thailand (Thai Baht Benchmark)</a>
+    • <a href="https://www.ygea.org.mm">10. YGEA (Myanmar Gold)</a>
 
+    Translate and structure into natural, professional, analytical Burmese. Avoid overly basic summaries.
+    Max length: 3500 characters.
+
+    News Data:
+    {raw_news}
+    """
+    
+    response = model.generate_content(prompt)
+    return response.text
+
+def send_telegram(message_text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message_text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+    res = requests.post(url, json=payload)
+    return res.json()
 
 if __name__ == "__main__":
-    main()
+    # Patong, Thailand Timezone (ICT - Asia/Bangkok, UTC+7)
+    patong_tz = ZoneInfo("Asia/Bangkok")
+    patong_time_str = datetime.now(patong_tz).strftime("%Y-%m-%d %H:%M ICT (Patong Time)")
+    
+    print(f"Generating detailed report for Patong time: {patong_time_str}...")
+    news_data = fetch_gold_news()
+    report = generate_report(news_data, patong_time_str)
+    result = send_telegram(report)
+    print("Completed:", result)
