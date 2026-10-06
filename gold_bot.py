@@ -30,7 +30,6 @@ def fetch_gold_news():
     return news_text
 
 def generate_report(raw_news, patong_time_str):
-    # Google GenAI Official Client အသစ်
     client = genai.Client(api_key=GEMINI_API_KEY)
     
     prompt = f"""
@@ -77,22 +76,12 @@ def generate_report(raw_news, patong_time_str):
     {raw_news}
     """
     
-    # Model စစ်ဆေးပြီး အဆင်ပြေရာ Model ဖြင့် အလိုအလျောက် ရွေးချယ်အသုံးပြုပေးမည့် စနစ်
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
-    
-    for model_name in models_to_try:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            print(f"Model {model_name} failed: {e}. Trying next...")
-            continue
-            
-    raise Exception("Failed to generate content with available Gemini models.")
+    # Model အသစ် gemini-3.8-flash သို့ ပြောင်းလဲထားပါသည်
+    response = client.models.generate_content(
+        model='gemini-3.8-flash',
+        contents=prompt
+    )
+    return response.text
 
 def send_telegram(message_text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
