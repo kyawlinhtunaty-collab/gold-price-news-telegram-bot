@@ -3,7 +3,7 @@ import requests
 import feedparser
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import google.generativeai as genai
+from google import genai
 
 # Environment Variables
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -11,7 +11,6 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 def fetch_gold_news():
-    # WGC, LBMA, CME, Kitco, TradingView, GTA Thailand, YGEA စသည့် သတင်းရင်းမြစ်များ ပါဝင်သော RSS Search Query
     query = (
         "gold price OR XAUUSD OR World Gold Council OR LBMA OR COMEX gold "
         "OR Kitco gold OR Gold Traders Association Thailand OR YGEA"
@@ -19,13 +18,11 @@ def fetch_gold_news():
     rss_url = f"https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl=en-US&gl=US&ceid=US:en"
     feed = feedparser.parse(rss_url)
     
-    # နောက်ဆုံးထွက် သတင်း ၁၀ ပုဒ်အထိ ဆွဲယူမည်
     articles = feed.entries[:10]
     news_text = ""
     
     for idx, entry in enumerate(articles, 1):
         title = entry.get('title', '')
-        link = entry.get('link', '')
         source = entry.get('source', {}).get('title', 'Financial Source')
         published = entry.get('published', '')
         news_text += f"{idx}. [{source}] {title}\nPublished: {published}\n\n"
@@ -33,8 +30,8 @@ def fetch_gold_news():
     return news_text
 
 def generate_report(raw_news, patong_time_str):
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # Google GenAI Official Client အသစ်
+    client = genai.Client(api_key=GEMINI_API_KEY)
     
     prompt = f"""
     You are a senior global commodities analyst. Generate an in-depth daily gold market report in Burmese for a user based in Patong, Phuket, Thailand.
@@ -80,8 +77,22 @@ def generate_report(raw_news, patong_time_str):
     {raw_news}
     """
     
-    response = model.generate_content(prompt)
-    return response.text
+    # Model စစ်ဆေးပြီး အဆင်ပြေရာ Model ဖြင့် အလိုအလျောက် ရွေးချယ်အသုံးပြုပေးမည့် စနစ်
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    
+    for model_name in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            print(f"Model {model_name} failed: {e}. Trying next...")
+            continue
+            
+    raise Exception("Failed to generate content with available Gemini models.")
 
 def send_telegram(message_text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -95,7 +106,6 @@ def send_telegram(message_text):
     return res.json()
 
 if __name__ == "__main__":
-    # Patong, Thailand Timezone (ICT - Asia/Bangkok, UTC+7)
     patong_tz = ZoneInfo("Asia/Bangkok")
     patong_time_str = datetime.now(patong_tz).strftime("%Y-%m-%d %H:%M ICT (Patong Time)")
     
