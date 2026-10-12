@@ -61,16 +61,24 @@ def generate_macro_interconnected_report(news_data):
     • [Include key news source links provided]
     """
 
-    # Updated Model Discovery Strategy with gemini-3.8-flash fallback
+    # Explicit Target Model Setup with Clean Formatting
+    target_model = "gemini-3.8-flash"
+    
     try:
-        available_models = client.models.list()
-        flash_model = next((m.name for m in available_models if "flash" in m.name.lower()), "gemini-3.8-flash")
+        available_models = [
+            m.name.replace("models/", "") 
+            for m in client.models.list() 
+            if "2.5" not in m.name and "flash" in m.name.lower()
+        ]
+        if available_models:
+            target_model = available_models[0]
     except Exception as e:
-        print(f"Model listing failed, defaulting: {e}")
-        flash_model = "gemini-3.8-flash"
+        print(f"Model dynamic listing failed, defaulting to {target_model}: {e}")
+
+    print(f"Using Model: {target_model}")
 
     response = client.models.generate_content(
-        model=flash_model,
+        model=target_model,
         contents=prompt,
         config=types.GenerateContentConfig(temperature=0.3)
     )
