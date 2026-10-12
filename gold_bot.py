@@ -1,8 +1,10 @@
 import os
+import time
 import requests
 import feedparser
 from google import genai
 from google.genai import types
+from google.genai.errors import ServerError, APIError
 
 # 1. Broad Financial & Macro RSS Feeds
 RSS_FEEDS = [
@@ -31,7 +33,6 @@ def generate_macro_interconnected_report(news_data):
 
     client = genai.Client(api_key=api_key)
 
-    # Directly connected Macro & Intermarket Prompt
     prompt = f"""
     Below is recent market news covering Gold, Oil, US Dollar Index (DXY), US Treasury Bond Yields, and Central Bank Interest Rates:
 
@@ -61,29 +62,32 @@ def generate_macro_interconnected_report(news_data):
     • [Include key news source links provided]
     """
 
-    # Explicit Target Model Setup with Clean Formatting
     target_model = "gemini-3.8-flash"
     
-    try:
-        available_models = [
-            m.name.replace("models/", "") 
-            for m in client.models.list() 
-            if "2.5" not in m.name and "flash" in m.name.lower()
-        ]
-        if available_models:
-            target_model = available_models[0]
-    except Exception as e:
-        print(f"Model dynamic listing failed, defaulting to {target_model}: {e}")
-
-    print(f"Using Model: {target_model}")
-
-    response = client.models.generate_content(
-        model=target_model,
-        contents=prompt,
-        config=types.GenerateContentConfig(temperature=0.3)
-    )
-
-    return response.text
+    # Retry mechanism for 503 Server Overload / High Demand spikes
+    max_retries = 3
+    retry_delay = 10  # Start with 10 seconds delay
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"Attempt {attempt + 1} using model: {target_model}")
+            response = client.models.generate_content(
+                model=target_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.3)
+            )
+            return response.text
+        except (ServerError, APIError) as e:
+            print(f"API Error (Attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print(f"Waiting {retry_delay} seconds before retrying...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Double the wait time for next retry
+            else:
+                raise e
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            raise e
 
 def send_telegram_message(message):
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
