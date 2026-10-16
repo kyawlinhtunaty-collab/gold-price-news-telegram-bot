@@ -62,32 +62,33 @@ def generate_macro_interconnected_report(news_data):
     • [Include key news source links provided]
     """
 
-    target_model = "gemini-3.8-flash"
+    # Model priority list for Fallback handling
+    candidate_models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
     
-    # Retry mechanism for 503 Server Overload / High Demand spikes
-    max_retries = 3
-    retry_delay = 10  # Start with 10 seconds delay
-    
-    for attempt in range(max_retries):
-        try:
-            print(f"Attempt {attempt + 1} using model: {target_model}")
-            response = client.models.generate_content(
-                model=target_model,
-                contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.3)
-            )
-            return response.text
-        except (ServerError, APIError) as e:
-            print(f"API Error (Attempt {attempt + 1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                print(f"Waiting {retry_delay} seconds before retrying...")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # Double the wait time for next retry
-            else:
-                raise e
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            raise e
+    for model_name in candidate_models:
+        max_retries = 2
+        retry_delay = 5
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"Trying model: {model_name} (Attempt {attempt + 1})")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=0.3)
+                )
+                print(f"Successfully generated using {model_name}")
+                return response.text
+            except (ServerError, APIError) as e:
+                print(f"503 / API Error on {model_name}: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+            except Exception as e:
+                print(f"Error on {model_name}: {e}")
+                break # Try next model if non-retriable error occurs
+
+    raise RuntimeError("All candidate models failed due to high demand or server overload.")
 
 def send_telegram_message(message):
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
