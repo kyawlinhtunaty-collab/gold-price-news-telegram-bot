@@ -6,25 +6,47 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ServerError, APIError
 
-# 1. Broad Financial & Macro RSS Feeds
+# 1. Combined Master RSS Feeds (Original Specialist Feeds + Google News Aggregator)
 RSS_FEEDS = [
-    "https://www.kitco.com/rss/news",               # Gold & Metals News
-    "https://www.investing.com/rss/news_11.rss",    # Commodities & Oil
-    "https://www.investing.com/rss/news_25.rss",    # Foreign Exchange (USD / DXY)
-    "https://www.investing.com/rss/news_14.rss",    # Bonds & Interest Rates
-    "https://cnbc.com/id/10000664/device/rss/rss.html" # World Economy & Inflation
+    # --- Original Specialist Feeds ---
+    "https://www.kitco.com/rss/news",               # Kitco Gold & Metals
+    "https://www.investing.com/rss/news_11.rss",    # Investing.com Commodities & Oil
+    "https://www.investing.com/rss/news_25.rss",    # Investing.com Foreign Exchange (USD / DXY)
+    "https://www.investing.com/rss/news_14.rss",    # Investing.com Bonds & Interest Rates
+    "https://cnbc.com/id/10000664/device/rss/rss.html", # CNBC World Economy & Inflation
+    
+    # --- Google News Search Aggregators ---
+    "https://news.google.com/rss/search?q=Gold+price+market+news&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=Crude+Oil+price+market+news&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=US+Dollar+Index+DXY&hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=US+Treasury+Bond+Yields&hl=en-US&gl=US&ceid=US:en"
 ]
 
-def fetch_rss_news():
+def fetch_all_master_news():
     news_items = []
+    seen_titles = set()  # Duplication preventer
+    
     for url in RSS_FEEDS:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:2]: # Extract top 2 articles per feed
-                news_items.append(f"Title: {entry.title}\nLink: {entry.link}\nSummary: {entry.get('summary', '')[:200]}")
+            # Fetch top 3 headlines from each feed to ensure ALL useful news is captured
+            for entry in feed.entries[:3]:
+                title = entry.get('title', '').strip()
+                link = entry.get('link', '').strip()
+                pubDate = entry.get('published', '').strip()
+                summary = entry.get('summary', '')[:250].strip()
+                
+                # Filter duplicates based on similar titles
+                title_key = title.lower()[:30]
+                if title_key not in seen_titles and title:
+                    seen_titles.add(title_key)
+                    news_items.append(
+                        f"Headline: {title}\nPublished: {pubDate}\nSummary: {summary}\nLink: {link}"
+                    )
         except Exception as e:
             print(f"Error fetching RSS from {url}: {e}")
-    return "\n\n".join(news_items)
+            
+    return "\n\n---\n\n".join(news_items)
 
 def generate_macro_interconnected_report(news_data):
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -33,62 +55,67 @@ def generate_macro_interconnected_report(news_data):
 
     client = genai.Client(api_key=api_key)
 
+    # Prompt demanding ALL useful headlines to be processed without skipping
     prompt = f"""
-    Below is recent market news covering Gold, Oil, US Dollar Index (DXY), US Treasury Bond Yields, and Central Bank Interest Rates:
+    Below is a full master collection of recent market news from Kitco, Investing.com, CNBC, and Google News covering Gold, Crude Oil, US Dollar Index (DXY), and US Treasury Bond Yields:
 
     {news_data}
 
-    Please synthesize and translate this into a simple, clear, and direct Burmese report for Telegram. 
-    Explain how these markets directly connect to each other and impact Gold, without using heavy academic jargon or Ray Dalio persona. Keep the tone natural, news-based, and easy to understand.
+    YOUR INSTRUCTIONS:
+    1. Extract and process ALL useful and meaningful news headlines provided above without leaving key market facts out.
+    2. Translate and summarize them into clear, accurate, direct, and complete Burmese for Telegram.
+    3. Clearly explain how Crude Oil, US Dollar, and Bond Yields directly connect to each other and drive Gold prices today.
+    4. Keep the tone professional, news-oriented, natural, and easy to read.
 
-    Use standard Telegram HTML tags (<b>, <i>, <a>):
+    Format the output for Telegram using HTML formatting (<b>, <i>, <a>):
 
-    <b>📰 ယနေ့ ကမ္ဘာ့ရွှေ၊ ရေနံ၊ ဒေါ်လာနှင့် ဘွန်ဒ် ဈေးကွက် ဆက်စပ်မှု သတင်းများ</b>
+    <b>📰 ကမ္ဘာ့ရွှေ၊ ရေနံ၊ ဒေါ်လာနှင့် ဘွန်ဒ် ဈေးကွက် သတင်း အပြည့်အစုံ စုစည်းမှု</b>
     <b>🕒 ထုတ်ပြန်ချိန် - [Date and Time in ICT]</b>
 
-    <b>🟡 ၁။ ရွှေဈေးကွက် အခြေအနေ (Gold Market)</b>
-    • [Direct summary of current Gold movements and drivers]
+    <b>🟡 ၁။ ရွှေဈေးကွက် အခြေအနေ သတင်းများ (Gold Market Updates)</b>
+    • [Comprehensive bullet points covering ALL key gold headlines]
 
-    <b>🛢️ ၂။ ရေနံစိမ်းနှင့် စွမ်းအင်ဈေးကွက် (Crude Oil & Energy)</b>
-    • [Summary of Oil prices and how energy costs impact overall market/inflation]
+    <b>🛢️ ၂။ ရေနံစိမ်းနှင့် စွမ်းအင်ဈေးကွက် သတင်းများ (Crude Oil & Energy Updates)</b>
+    • [Comprehensive bullet points covering ALL key oil headlines]
 
-    <b>💵 ၃။ အမေရိကန်ဒေါ်လာနှင့် ဘွန်ဒ်အတိုးနှုန်းများ (DXY & US Bond Yields)</b>
-    • [Summary of USD Index (DXY) and US 10-Year Bond Yields, and their direct inverse/direct relationship with Gold]
+    <b>💵 ၃။ အမေရိကန်ဒေါ်လာနှင့် ဘွန်ဒ်အတိုးနှုန်း သတင်းများ (DXY & US Bond Yields)</b>
+    • [Comprehensive bullet points covering DXY and US Treasury Bond headlines]
 
-    <b>🌐 ၄။ ဈေးကွက်များ၏ ပေါင်းစပ်သက်ရောက်မှု (Intermarket Impact & Summary)</b>
-    • [A brief 2-sentence summary explaining how Oil + USD + Bond Yields combined are moving Gold today]
+    <b>🌐 ၄။ ဈေးကွက်များ ပေါင်းစပ်သက်ရောက်မှု (Intermarket Impact & Summary)</b>
+    • [A 2-3 sentence summary explaining how Oil + USD + Bond Yields combined are moving Gold today]
 
     <b>🔗 မူရင်း သတင်းလင့်ခ်များ:</b>
-    • [Include key news source links provided]
+    • [List top official news source links provided in the data]
     """
 
-    # Model priority list for Fallback handling
-    candidate_models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+    candidate_models = ["gemini-3.8-flash", "gemini-3.8-lite"]
     
     for model_name in candidate_models:
-        max_retries = 2
-        retry_delay = 5
+        max_retries = 15  # Up to 15 retries for 503 high demand handling
         
-        for attempt in range(max_retries):
+        print(f"--- Attempting execution with model: {model_name} ---")
+        
+        for attempt in range(1, max_retries + 1):
             try:
-                print(f"Trying model: {model_name} (Attempt {attempt + 1})")
+                print(f"Attempt {attempt}/{max_retries} for {model_name}...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
-                    config=types.GenerateContentConfig(temperature=0.3)
+                    config=types.GenerateContentConfig(temperature=0.2)
                 )
-                print(f"Successfully generated using {model_name}")
+                print(f"✅ Success on attempt {attempt} using {model_name}!")
                 return response.text
             except (ServerError, APIError) as e:
-                print(f"503 / API Error on {model_name}: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
+                print(f"⚠️ 503 / API Error on {model_name} (Attempt {attempt}): {e}")
+                if attempt < max_retries:
+                    wait_time = min(5 + (attempt * 2), 15)
+                    print(f"⏳ Waiting {wait_time} seconds before next retry...")
+                    time.sleep(wait_time)
             except Exception as e:
-                print(f"Error on {model_name}: {e}")
-                break # Try next model if non-retriable error occurs
+                print(f"Unexpected error on {model_name}: {e}")
+                break
 
-    raise RuntimeError("All candidate models failed due to high demand or server overload.")
+    raise RuntimeError("All candidate models failed after 15 retries due to heavy server demand.")
 
 def send_telegram_message(message):
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -110,7 +137,7 @@ def send_telegram_message(message):
         requests.post(url, json=payload)
 
 def main():
-    news_data = fetch_rss_news()
+    news_data = fetch_all_master_news()
     report = generate_macro_interconnected_report(news_data)
     send_telegram_message(report)
 
