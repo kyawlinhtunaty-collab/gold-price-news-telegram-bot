@@ -29,14 +29,12 @@ def fetch_all_master_news():
     for url in RSS_FEEDS:
         try:
             feed = feedparser.parse(url)
-            # Fetch top 3 headlines from each feed to ensure ALL useful news is captured
             for entry in feed.entries[:3]:
                 title = entry.get('title', '').strip()
                 link = entry.get('link', '').strip()
                 pubDate = entry.get('published', '').strip()
                 summary = entry.get('summary', '')[:250].strip()
                 
-                # Filter duplicates based on similar titles
                 title_key = title.lower()[:30]
                 if title_key not in seen_titles and title:
                     seen_titles.add(title_key)
@@ -64,7 +62,7 @@ def generate_macro_interconnected_report(news_data):
     1. Extract and process ALL useful and meaningful news headlines provided above without leaving key market facts out.
     2. Translate and summarize them into clear, accurate, direct, and complete Burmese for Telegram.
     3. Clearly explain how Crude Oil, US Dollar, and Bond Yields directly connect to each other and drive Gold prices today.
-    4. Keep the tone professional, news-oriented, natural, and easy to read.
+    4. Keep the tone professional, news-oriented, natural, and easy to understand.
 
     Format the output for Telegram using HTML formatting (<b>, <i>, <a>):
 
@@ -87,7 +85,8 @@ def generate_macro_interconnected_report(news_data):
     • [List top official news source links provided in the data]
     """
 
-    candidate_models = ["gemini-3.8-flash", "gemini-3.8-lite"]
+    # Validated active production fallback models
+    candidate_models = ["gemini-3.8-flash", "gemini-3.6-flash"]
     
     for model_name in candidate_models:
         max_retries = 15
@@ -125,7 +124,6 @@ def send_telegram_message(message):
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
-    # Try sending with HTML format first
     payload = {
         "chat_id": chat_id,
         "text": message,
