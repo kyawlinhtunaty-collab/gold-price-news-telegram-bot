@@ -55,7 +55,6 @@ def generate_macro_interconnected_report(news_data):
 
     client = genai.Client(api_key=api_key)
 
-    # Prompt demanding ALL useful headlines to be processed without skipping
     prompt = f"""
     Below is a full master collection of recent market news from Kitco, Investing.com, CNBC, and Google News covering Gold, Crude Oil, US Dollar Index (DXY), and US Treasury Bond Yields:
 
@@ -91,7 +90,7 @@ def generate_macro_interconnected_report(news_data):
     candidate_models = ["gemini-3.8-flash", "gemini-3.8-lite"]
     
     for model_name in candidate_models:
-        max_retries = 15  # Up to 15 retries for 503 high demand handling
+        max_retries = 15
         
         print(f"--- Attempting execution with model: {model_name} ---")
         
@@ -121,8 +120,12 @@ def send_telegram_message(message):
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
+    if not bot_token or not chat_id:
+        raise ValueError("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing in environment variables.")
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
 
+    # Try sending with HTML format first
     payload = {
         "chat_id": chat_id,
         "text": message,
@@ -131,10 +134,20 @@ def send_telegram_message(message):
     }
 
     res = requests.post(url, json=payload)
+    print(f"Telegram API HTML Status Code: {res.status_code}")
+    print(f"Telegram API HTML Response: {res.text}")
+
     if not res.ok:
-        # Fallback to plain text if Telegram HTML parsing fails
+        print("⚠️ HTML message send failed. Retrying with plain text format...")
         payload["parse_mode"] = None
-        requests.post(url, json=payload)
+        res_fallback = requests.post(url, json=payload)
+        print(f"Telegram API PlainText Status Code: {res_fallback.status_code}")
+        print(f"Telegram API PlainText Response: {res_fallback.text}")
+
+        if not res_fallback.ok:
+            raise RuntimeError(f"❌ Failed to send Telegram message completely: {res_fallback.text}")
+    else:
+        print("✅ Telegram message sent successfully with HTML format!")
 
 def main():
     news_data = fetch_all_master_news()
